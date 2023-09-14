@@ -1,3 +1,8 @@
+# Version 1.7.0
+
+### :bug: Bugs
+- Fixed the plugin breaking on latest darkbot versions
+
 # Version 1.6.0 beta 4
 
 ### :hammer_and_wrench: Improvements

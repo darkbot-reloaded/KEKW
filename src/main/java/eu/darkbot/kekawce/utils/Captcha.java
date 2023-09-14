@@ -1,11 +1,12 @@
 package eu.darkbot.kekawce.utils;
 
-import com.github.manolo8.darkbot.core.entities.Box;
+import eu.darkbot.api.game.entities.Box;
 
-import java.util.List;
+import java.util.Collection;
 
 public class Captcha {
-    public static boolean exists(List<Box> boxes) {
-        return boxes.stream().anyMatch(box -> box.type.equals("POISON_PUSAT_BOX_BLACK") || box.type.equals("BONUS_BOX_RED"));
+    public static boolean exists(Collection<? extends Box> boxes) {
+        return boxes.stream()
+                .anyMatch(box -> box.getTypeName().equals("POISON_PUSAT_BOX_BLACK") || box.getTypeName().equals("BONUS_BOX_RED"));
     }
 }

@@ -1,14 +1,14 @@
 {
   "name": "KEKW",
   "author": "ace",
-  "version": "1.6.0 beta 4",
-  "minVersion": "1.13.17 beta 64",
-  "supportedVersion": "1.13.17 beta 64",
+  "version": "1.7.0 a1",
+  "minVersion": "1.128.3",
+  "supportedVersion": "1.129.3",
   "features": [
     "eu.darkbot.kekawce.modules.chromintmpmodule.ChrominFarmerTmpModule",
     "eu.darkbot.kekawce.modules.infectiontmpmodule.InfectionTmpModule",
     "eu.darkbot.kekawce.modules.tradertmpmodule.OreTraderTmpModule"
   ],
-  "download": "https://gist.github.com/kekawce/dd496e2dd48fb610ca4bccc3be1f59f3/raw/KEKW.jar",
-  "update": "https://gist.github.com/kekawce/dd496e2dd48fb610ca4bccc3be1f59f3/raw/plugin.json"
+  "download": "https://gist.githubusercontent.com/Pablete1234/07e80e63d962dc6fdedbb46e3ad329f0/raw/KEKW.jar",
+  "update": "https://gist.githubusercontent.com/Pablete1234/07e80e63d962dc6fdedbb46e3ad329f0/raw/kekw_plugin.json"
 }

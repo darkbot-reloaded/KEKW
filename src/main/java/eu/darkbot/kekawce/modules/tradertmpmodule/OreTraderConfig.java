@@ -1,26 +1,21 @@
 package eu.darkbot.kekawce.modules.tradertmpmodule;
 
 import com.github.manolo8.darkbot.config.Config;
-import com.github.manolo8.darkbot.config.types.Editor;
 import com.github.manolo8.darkbot.config.types.Num;
 import com.github.manolo8.darkbot.config.types.Option;
-import com.github.manolo8.darkbot.config.types.Options;
-import com.github.manolo8.darkbot.core.objects.OreTradeGui;
-import com.github.manolo8.darkbot.gui.tree.components.JCheckboxListField;
-import com.github.manolo8.darkbot.gui.tree.components.JListField;
+import eu.darkbot.api.config.annotations.Dropdown;
+import eu.darkbot.api.managers.OreAPI;
 
 import java.util.EnumSet;
 import java.util.Set;
 
-@SuppressWarnings("CanBeFinal")
 public class OreTraderConfig {
     @Option(value = "Enable feature", description = "check this to enable this feature/plugin")
     public boolean ENABLE_FEATURE = false;
 
     @Option(value = "Sell map", description = "goes to this map to sell resources")
-    @Editor(JListField.class)
-    @Options(Maps.class)
-    public int SELL_MAP_NDX = 0;
+    @Dropdown(options = Maps.class)
+    public String SELL_MAP = "X-1";
 
     @Option(value = "Sell config", description = "changes to this config when selling")
     public Config.ShipConfig SELL_CONFIG = new Config.ShipConfig(2, '9');
@@ -29,9 +24,8 @@ public class OreTraderConfig {
     public boolean FINISH_TARGET_BEFORE_SELLING = false;
 
     @Option(value = "Resources to sell", description = "will only sell these selected resources")
-    @Editor(JCheckboxListField.class)
-    @Options(Ores.class)
-    public Set<OreTradeGui.Ore> ORES_TO_SELL = EnumSet.allOf(OreTradeGui.Ore.class);
+    @Dropdown(multi = true)
+    public Set<OreAPI.Ore> ORES_TO_SELL = EnumSet.allOf(OreAPI.Ore.class);
 
     @Option(value = "Advanced", description = "You can ignore this if you have no issues")
     public Advanced ADVANCED = new Advanced();

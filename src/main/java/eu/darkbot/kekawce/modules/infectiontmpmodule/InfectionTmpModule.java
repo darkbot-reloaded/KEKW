@@ -8,22 +8,25 @@ import com.github.manolo8.darkbot.core.entities.bases.BaseRefinery;
 import com.github.manolo8.darkbot.core.entities.bases.BaseStation;
 import com.github.manolo8.darkbot.core.entities.bases.BaseTurret;
 import com.github.manolo8.darkbot.core.entities.bases.QuestGiver;
-import com.github.manolo8.darkbot.core.itf.Behaviour;
-import com.github.manolo8.darkbot.core.itf.Configurable;
-import com.github.manolo8.darkbot.core.objects.Map;
 import com.github.manolo8.darkbot.extensions.features.Feature;
-import com.github.manolo8.darkbot.modules.TemporalModule;
 import com.github.manolo8.darkbot.utils.Time;
+import eu.darkbot.api.PluginAPI;
+import eu.darkbot.api.config.ConfigSetting;
+import eu.darkbot.api.events.EventHandler;
+import eu.darkbot.api.extensions.Behavior;
+import eu.darkbot.api.extensions.Configurable;
+import eu.darkbot.api.managers.BotAPI;
+import eu.darkbot.api.managers.ExtensionsAPI;
+import eu.darkbot.api.managers.StarSystemAPI;
 import eu.darkbot.kekawce.utils.Captcha;
 import eu.darkbot.kekawce.utils.DefaultInstallable;
 import eu.darkbot.kekawce.utils.StatusUtils;
+import eu.darkbot.shared.modules.TemporalModule;
 
 import java.util.Comparator;
-import java.util.function.Consumer;
 
 @Feature(name = "Auto Infection", description = "drops infection mine when you are not infected")
-public class InfectionTmpModule extends TemporalModule
-        implements Behaviour, Configurable<InfectionConfig> {
+public class InfectionTmpModule extends TemporalModule implements Behavior, Configurable<InfectionConfig> {
 
     private static final int INFECT_MINE_ID = 17;
     private static final int INFECT_MINE_EFFECT = 85;
@@ -35,27 +38,26 @@ public class InfectionTmpModule extends TemporalModule
     private long activeTime;
     private boolean moved;
 
-    private final Consumer<Map> onMapChange = map -> this.waitTime = 0;
-
-    @Override
-    public void install(Main main) {
-        if (DefaultInstallable.cantInstall(main, this)) return;
-
-        super.install(main);
+    public InfectionTmpModule(BotAPI bot, Main main, ExtensionsAPI extensions) {
+        super(bot);
+        if (DefaultInstallable.cantInstall(extensions, this)) return;
         this.main = main;
+    }
+
+    @Override
+    public void install(PluginAPI api) {
+        super.install(api);
         this.moved = false;
+    }
 
-        main.mapManager.mapChange.add(onMapChange);
+    @EventHandler
+    public void onMapChange(StarSystemAPI.MapChangeEvent e) {
+        waitTime = 0;
     }
 
     @Override
-    public void uninstall() {
-        this.main.mapManager.mapChange.remove2(onMapChange);
-    }
-
-    @Override
-    public void setConfig(InfectionConfig config) {
-        this.config = config;
+    public void setConfig(ConfigSetting<InfectionConfig> config) {
+        this.config = config.getValue();
     }
 
     @Override
@@ -64,27 +66,27 @@ public class InfectionTmpModule extends TemporalModule
     }
 
     @Override
-    public String status() {
+    public String getStatus() {
         long activeFor = System.currentTimeMillis() - this.activeTime;
         return StatusUtils.status("Auto Infection",
                 (isSafe() ? "Infecting..." : "Not safe aborting infection"), activeFor + "ms");
     }
 
     @Override
-    public void tickBehaviour() {
+    public void onTickBehavior() {
         if (!config.ENABLE_FEATURE) return;
         if (!canInfect() || System.currentTimeMillis() - this.activeTime < 60 * Time.SECOND) return;
         if (Captcha.exists(main.mapManager.entities.boxes)) return;
 
         if (waitTime == 0) waitTime = System.currentTimeMillis();
-        if (this.main.module != this && System.currentTimeMillis() - waitTime > 15 * Time.SECOND) {
+        if (!this.equals(this.main.getModule()) && System.currentTimeMillis() - waitTime > 15 * Time.SECOND) {
             this.activeTime = 0;
             main.setModule(this);
         }
     }
 
     @Override
-    public void tickModule() {
+    public void onTickModule() {
         if (activeTime == 0) activeTime = System.currentTimeMillis();
 
         infect();
@@ -96,12 +98,7 @@ public class InfectionTmpModule extends TemporalModule
         }
     }
 
-    @Override
-    public void tick() {
-    }
-
     private void infect() {
-
         if (!this.moved) {
             this.moved = true;
             this.main.hero.drive.stop(true);

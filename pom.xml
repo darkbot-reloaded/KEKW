@@ -28,6 +28,12 @@
             <artifactId>DarkBot</artifactId>
             <version>master-SNAPSHOT</version>
         </dependency>
+
+        <dependency>
+            <groupId>com.github.darkbot-reloaded.DarkBotAPI</groupId>
+            <artifactId>darkbot-common</artifactId>
+            <version>0.8.2</version>
+        </dependency>
     </dependencies>
 
     <build>

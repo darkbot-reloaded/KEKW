@@ -15,7 +15,6 @@ import java.awt.*;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-@SuppressWarnings("CanBeFinal")
 public class ChrominFarmerConfig {
 
     @Option(value = "Enable feature", description = "check this to enable this feature/plugin")
@@ -35,9 +34,8 @@ public class ChrominFarmerConfig {
     public transient Lazy<String> STATS_INFO_UPDATE = new Lazy.NoCache<>();
     public final Object lock = new Object();
 
-    @SuppressWarnings("DefaultAnnotationParam")
     @Option(value = "Buy lives", description = "how many additional lives to buy for each zeta gate")
-    @Num(min = 0, max = 100, step = 1)
+    @Num(step = 1)
     public int BUY_LIVES = 0;
 
     @Option(value = "Cost to buy first life",

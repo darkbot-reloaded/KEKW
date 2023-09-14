@@ -1,145 +1,99 @@
 package eu.darkbot.kekawce.modules.chromintmpmodule;
 
-import com.github.manolo8.darkbot.Main;
-import com.github.manolo8.darkbot.core.entities.Box;
-import com.github.manolo8.darkbot.core.entities.Entity;
-import com.github.manolo8.darkbot.core.manager.HeroManager;
-import com.github.manolo8.darkbot.core.objects.Map;
-import com.github.manolo8.darkbot.core.utils.Location;
-import com.github.manolo8.darkbot.core.utils.factory.EntityFactory;
-import com.github.manolo8.darkbot.modules.CollectorModule;
-import com.github.manolo8.darkbot.utils.Time;
+import eu.darkbot.api.PluginAPI;
+import eu.darkbot.api.events.EventHandler;
+import eu.darkbot.api.events.Listener;
+import eu.darkbot.api.game.entities.Box;
+import eu.darkbot.api.game.other.Locatable;
+import eu.darkbot.api.game.other.Location;
+import eu.darkbot.api.managers.EntitiesAPI;
+import eu.darkbot.api.managers.StarSystemAPI;
+import eu.darkbot.shared.modules.CollectorModule;
+import eu.darkbot.util.TimeUtils;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
-import java.util.List;
-import java.util.function.Consumer;
+import java.util.HashMap;
+import java.util.Map;
 
-public class ChrominCollector extends CollectorModule {
+public class ChrominCollector extends CollectorModule implements Listener {
 
     private static final String CHROMIN_BOX = "CHROMIN_BOX";
-    private final Object lock = new Object();
 
-    private final Main main;
-    private final HeroManager hero;
-    private final ChrominFarmerConfig config;
+    private ChrominFarmerConfig config;
+    public final Map<String, Box> chrominBoxes = new HashMap<>();
 
     private long waitingForBoxUntil;
 
-    private final List<Box> boxes;
-    public List<Box> chrominBoxes;
-
-    private final Consumer<Entity> filterBoxes = this::onEntityReceived;
-    private final Consumer<Map> onMapChange = map -> this.chrominBoxes = new ArrayList<>();
-
-    public ChrominCollector(Main main, ChrominFarmerConfig config) {
-        super.install(main);
-
-        this.main = main;
-        this.hero = main.hero;
-        this.boxes = main.mapManager.entities.boxes;
-        this.config = config;
-
+    public ChrominCollector(PluginAPI api) {
+        super(api);
         this.waitingForBoxUntil = -1;
-        this.chrominBoxes = new ArrayList<>();
-
-        main.mapManager.mapChange.add(onMapChange);
     }
 
-    @Override
-    public void uninstall() {
-        super.uninstall();
-        this.main.mapManager.entities.entityRegistry.remove(EntityFactory.BOX, filterBoxes);
-        this.main.mapManager.mapChange.remove2(onMapChange);
+    public void setConfig(ChrominFarmerConfig config) {
+        this.config = config;
     }
 
-    private void onEntityReceived(Entity entity) {
-        synchronized (lock) {
+    @EventHandler
+    public void onMapChange(StarSystemAPI.MapChangeEvent mapChange) {
+        this.chrominBoxes.clear();
+    }
+
+    @EventHandler
+    private void onEntityReceived(EntitiesAPI.EntityCreateEvent entity) {
+        if (entity instanceof Box) {
             Box box = (Box) entity;
-
-            if (box.type.contains(CHROMIN_BOX)) {
-                String hash = Main.API.readMemoryString(box.address, 160);
-
-                if (chrominBoxes.stream().noneMatch(cbox -> cbox.getMetadata("BOX_HASH").equals(hash))) {
-                    box.setMetadata("BOX_HASH", hash);
-                    chrominBoxes.add(box);
-                } else { // anyMatch(), there is match/duplicate box found
-                    // replace old box with new box to reset removed variable value or else it will always be true when
-                    // the box becomes out of sight
-                    Box oldBox = chrominBoxes.stream()
-                            .filter(cbox -> cbox.getMetadata("BOX_HASH").equals(hash))
-                            .findFirst()
-                            .orElse(null);
-                    box.setMetadata("BOX_HASH", hash);
-                    //noinspection ResultOfMethodCallIgnored
-                    Collections.replaceAll(chrominBoxes, oldBox, box);
-                }
+            if (box.getTypeName().contains(CHROMIN_BOX)) {
+                chrominBoxes.put(box.getHash(), box);
             }
         }
     }
 
     @Override
-    public void tick() {
-        synchronized (lock) {
-            this.chrominBoxes.removeIf(box -> this.hero.locationInfo.distance(box) < 700D && box.removed);
-        }
-        this.main.mapManager.entities.entityRegistry.add(EntityFactory.BOX, filterBoxes);
+    public void onTickModule() {
+        this.chrominBoxes.values().removeIf(box -> this.hero.distanceTo(box) < 700D && !box.isValid());
     }
 
     public boolean hasBoxes() {
-        Box oldCurr = current;
+        Box oldCurr = currentBox;
         if (isNotWaiting()) findBox();
-        if (current == null || oldCurr == null || current != oldCurr) waitingForBoxUntil = -1;
+        if (currentBox == null || oldCurr == null || currentBox != oldCurr) waitingForBoxUntil = -1;
 
-        Box curr = current != null ? current : this.chrominBoxes.stream()
-                .min(Comparator.comparingDouble(box -> this.hero.locationInfo.distance(box)))
+        Box curr = currentBox != null ? currentBox : this.chrominBoxes.values().stream()
+                .min(Comparator.comparingDouble(this.hero::distanceTo))
                 .orElse(null);
         return curr != null;
     }
 
     public void collectBox() {
-        if (current == null) {
-            this.chrominBoxes.stream()
-                    .min(Comparator.comparingDouble(box -> this.hero.locationInfo.distance(box)))
-                    .ifPresent(box -> moveTowardsBox(box.locationInfo.now));
-            return;
-        }
-        if (config.COLLECTOR.PET_BOX_COLLECTING_ONLY && current.type.contains(CHROMIN_BOX)) {
-            moveTowardsBox(current.locationInfo.now);
+        if (currentBox == null) {
+            this.chrominBoxes.values().stream()
+                    .min(Comparator.comparingDouble(hero::distanceTo))
+                    .ifPresent(box -> moveTowardsBox(box.getLocationInfo().getCurrent()));
+        } else if (config.COLLECTOR.PET_BOX_COLLECTING_ONLY && currentBox.getTypeName().contains(CHROMIN_BOX)) {
+            moveTowardsBox(currentBox);
 
-            if (this.hero.locationInfo.distance(current) < 450D) {
-                boolean petStuckOnCargo = this.main.statsManager.deposit >= this.main.statsManager.depositTotal &&
-                        this.boxes.stream().anyMatch(box -> box.type.equals("FROM_SHIP") || box.type.equals("CANDY_CARGO"));
-                if (waitingForBoxUntil == -1 || petStuckOnCargo) waitingForBoxUntil = System.currentTimeMillis() + 10 * Time.SECOND;
-                else if (System.currentTimeMillis() > waitingForBoxUntil) tryCollectNearestBox();
+            if (this.hero.distanceTo(currentBox) < 450D) {
+                boolean petStuckOnCargo = stats.getCargo() >= stats.getMaxCargo() &&
+                        this.boxes.stream().anyMatch(box -> isResource(box.getTypeName()));
+                if (waitingForBoxUntil == -1 || petStuckOnCargo) waitingForBoxUntil = System.currentTimeMillis() + 10 * TimeUtils.SECOND;
+                else if (System.currentTimeMillis() > waitingForBoxUntil) super.collectBox();
             } else waitingForBoxUntil = -1;
-        } else tryCollectNearestBox();
+        } else super.collectBox();
     }
 
-    private void moveTowardsBox(Location box) {
-        box = Location.of(box, box.angle(main.hero.locationInfo.now) - 0.3, 200);
-        if (main.hero.drive.movingTo().distance(box) > 300) main.hero.drive.move(box);
+    private void moveTowardsBox(Locatable box) {
+        box = Location.of(box, box.angleTo(movement.getCurrentLocation()) - 0.3, 200);
+        if (movement.getDestination().distanceTo(box) > 300) movement.moveTo(box);
     }
 
     @Override
     public String toString() {
-        sortBoxesByClosestDistance();
         StringBuilder locInfo = new StringBuilder();
 
-        for (final Box box : chrominBoxes)
-            locInfo.append("(").append(box.locationInfo.now.toString()).append(") | ");
+        chrominBoxes.values().stream().sorted(Comparator.comparingDouble(hero::distanceTo))
+                .forEach(box -> locInfo.append("(").append(box.getLocationInfo().getCurrent().toString()).append(") | "));
 
         return locInfo.toString();
-    }
-
-    private void sortBoxesByClosestDistance() {
-        chrominBoxes.sort((b1, b2) -> {
-            double distToB1 = hero.locationInfo.distance(b1);
-            double distToB2 = hero.locationInfo.distance(b2);
-
-            return Double.compare(distToB1, distToB2);
-        });
     }
 
 }
