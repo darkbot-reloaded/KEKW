@@ -28,10 +28,12 @@ import eu.darkbot.api.managers.OreAPI;
 import eu.darkbot.kekawce.utils.Captcha;
 import eu.darkbot.kekawce.utils.DefaultInstallable;
 import eu.darkbot.kekawce.utils.StatusUtils;
+import eu.darkbot.kekawce.utils.VerifierChecker;
 import eu.darkbot.shared.modules.TemporalModule;
 import eu.darkbot.shared.utils.MapTraveler;
 import eu.darkbot.shared.utils.PortalJumper;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -41,19 +43,19 @@ import java.util.concurrent.ThreadLocalRandom;
 @Feature(name = "Ore Trader", description = "When cargo is full travels to base to sell")
 public class OreTraderTmpModule extends TemporalModule implements Behavior, Configurable<OreTraderConfig> {
 
-    private Main main;
-    private Drive drive;
-    private HeroManager hero;
-    private StatsManager stats;
-    private PortalJumper jumper;
-    private Portal ggExitPortal;
-    private OreAPI oreTrade;
-    private RefinementGui refinement;
-    private MapTraveler traveler;
-    private Collection<? extends Portal> portals;
-    private Collection<? extends Station> bases;
+    private final Main main;
+    private final Drive drive;
+    private final HeroManager hero;
+    private final StatsManager stats;
+    private final PortalJumper jumper;
+    private final OreAPI oreTrade;
+    private final RefinementGui refinement;
+    private final MapTraveler traveler;
+    private final Collection<? extends Portal> portals;
+    private final Collection<? extends Station> bases;
 
     private OreTraderConfig config;
+    private Portal ggExitPortal;
 
     private Iterator<OreAPI.Ore> ores;
     private long sellTime, sellBtnTime = Long.MAX_VALUE, sellUntil;
@@ -66,19 +68,18 @@ public class OreTraderTmpModule extends TemporalModule implements Behavior, Conf
                               HeroManager hero,
                               StatsManager stats,
                               PortalJumper jumper,
-                              Portal ggExitPortal,
                               OreAPI oreTrade,
                               RefinementGui refinement,
                               MapTraveler traveler,
                               EntitiesAPI entities) {
         super(bot);
-        if (DefaultInstallable.cantInstall(extensions, this)) return;
+        if (!Arrays.equals(DefaultInstallable.class.getSigners(), getClass().getSigners())) throw new SecurityException();
+        if (DefaultInstallable.cantInstall(extensions, this)) throw new SecurityException();
         this.main = main;
         this.drive = drive;
         this.hero = hero;
         this.stats = stats;
         this.jumper = jumper;
-        this.ggExitPortal = ggExitPortal;
         this.oreTrade = oreTrade;
         this.refinement = refinement;
         this.traveler = traveler;
