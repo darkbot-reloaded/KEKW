@@ -40,7 +40,7 @@ public class OreTraderConfig {
                               "\nOtherwise decrease it if you want to speed up this action"
         )
         @Num(min = 0, max = 5000, step = 100)
-        public int SELL_WAIT = 2000;
+        public long SELL_WAIT = 2000;
 
         @Option(
                 value = "Sell delay (ms)",
@@ -49,6 +49,6 @@ public class OreTraderConfig {
                               "\nOtherwise decrease it if you want to speed up selling"
         )
         @Num(min = 0, max = 1000, step = 100)
-        public int SELL_DELAY = 300;
+        public long SELL_INTERVAL = 300;
     }
 }
