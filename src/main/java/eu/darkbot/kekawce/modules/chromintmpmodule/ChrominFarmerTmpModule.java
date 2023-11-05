@@ -42,7 +42,6 @@ import java.util.regex.Pattern;
 @Feature(name = "Zeta Chromin Farmer", description = "suicides on last wave in zeta for more chromin")
 public class ChrominFarmerTmpModule extends TemporalModule implements Behavior, Task, Configurable<ChrominFarmerConfig> {
 
-    private static final Pattern LIVES_PATTERN = Pattern.compile("\\{(\\d+)}");
     private static final SimpleDateFormat DATE_FORMAT = new SimpleDateFormat("HH:mm:ss");
 
     private enum ChrominFarmerState {
@@ -85,6 +84,7 @@ public class ChrominFarmerTmpModule extends TemporalModule implements Behavior, 
     private boolean hasSeenLastSubWave;
     private int currWave = -1;
     private int currLives = -1;
+    private int lastMapId = -1;
 
     public ChrominFarmerTmpModule(BotAPI bot,
                                   ExtensionsAPI extensions,
@@ -116,12 +116,6 @@ public class ChrominFarmerTmpModule extends TemporalModule implements Behavior, 
         super.install(api);
         this.chrominFarmerState = ChrominFarmerState.WAITING;
         this.gate = spinner.getGalaxyInfo().getGateInfo(GalaxyGate.ZETA);
-    }
-
-    @EventHandler
-    private void onLogReceived(GameLogAPI.LogMessageEvent log) {
-        Matcher m = LIVES_PATTERN.matcher(log.getMessage());
-        if (m.find()) currLives = Integer.parseInt(m.group(1));
     }
 
     @Override
@@ -229,8 +223,9 @@ public class ChrominFarmerTmpModule extends TemporalModule implements Behavior, 
 
     private boolean canStartChrominFarmingModule() {
         if (isNotInitialized()) return false;
-        if (currLives == -1) {
+        if (currLives == -1 || this.hero.getMap().getId() != lastMapId) {
             currLives = gate.getLivesLeft();
+            lastMapId = this.hero.getMap().getId();
             return false;
         }
         if (currLives <= 1 || this.hero.getMap().getId() != ZETA_LAST_MAP_ID) return false;
@@ -297,7 +292,7 @@ public class ChrominFarmerTmpModule extends TemporalModule implements Behavior, 
             this.lastStatsCheck = 0;
 
             setStatsStatus(this.chrominFarmerState.toString());
-            updateStats("Lives Left", gate.getLivesLeft());
+            updateStats("Lives Left", currLives);
             updateStats("Life Price", gate.getLifePrice());
             updateStats("Lives Bought", this.livesBought);
 
