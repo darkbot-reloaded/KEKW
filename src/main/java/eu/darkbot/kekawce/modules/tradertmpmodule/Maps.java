@@ -7,7 +7,7 @@ import java.util.Collection;
 import java.util.List;
 
 public class Maps implements Dropdown.Options<String> {
-    private static final List<String> OPTIONS = Arrays.asList("X-1", "X-8", "5-2", "LoW");
+    private static final List<String> OPTIONS = Arrays.asList("Auto", "X-1", "X-8", "5-2", "LoW");
 
     @Override
     public String getText(String option) {

@@ -1,102 +1,87 @@
 package eu.darkbot.kekawce.modules.tradertmpmodule;
 
-import com.github.manolo8.darkbot.Main;
-import com.github.manolo8.darkbot.core.entities.BasePoint;
-import com.github.manolo8.darkbot.core.entities.bases.BaseRefinery;
-import com.github.manolo8.darkbot.core.manager.HeroManager;
-import com.github.manolo8.darkbot.core.manager.StarManager;
-import com.github.manolo8.darkbot.core.manager.StatsManager;
-import com.github.manolo8.darkbot.core.objects.Map;
-import com.github.manolo8.darkbot.core.objects.gui.OreTradeGui;
-import com.github.manolo8.darkbot.core.objects.gui.RefinementGui;
-import com.github.manolo8.darkbot.core.utils.Drive;
-import com.github.manolo8.darkbot.extensions.features.Feature;
 import com.github.manolo8.darkbot.utils.I18n;
 import com.github.manolo8.darkbot.utils.Time;
-import eu.darkbot.api.PluginAPI;
 import eu.darkbot.api.config.ConfigSetting;
 import eu.darkbot.api.extensions.Behavior;
 import eu.darkbot.api.extensions.Configurable;
+import eu.darkbot.api.extensions.Feature;
 import eu.darkbot.api.game.entities.Portal;
 import eu.darkbot.api.game.entities.Station;
 import eu.darkbot.api.game.other.GameMap;
 import eu.darkbot.api.game.other.Location;
-import eu.darkbot.api.managers.BotAPI;
-import eu.darkbot.api.managers.EntitiesAPI;
-import eu.darkbot.api.managers.ExtensionsAPI;
-import eu.darkbot.api.managers.OreAPI;
+import eu.darkbot.api.managers.*;
 import eu.darkbot.kekawce.utils.Captcha;
 import eu.darkbot.kekawce.utils.DefaultInstallable;
 import eu.darkbot.kekawce.utils.StatusUtils;
-import eu.darkbot.kekawce.utils.VerifierChecker;
 import eu.darkbot.shared.modules.TemporalModule;
 import eu.darkbot.shared.utils.MapTraveler;
-import eu.darkbot.shared.utils.PortalJumper;
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Feature(name = "Ore Trader", description = "When cargo is full travels to base to sell")
 public class OreTraderTmpModule extends TemporalModule implements Behavior, Configurable<OreTraderConfig> {
 
-    private final Main main;
-    private final Drive drive;
-    private final HeroManager hero;
-    private final StatsManager stats;
-    private final PortalJumper jumper;
+    private final HeroAPI hero;
+    private final StatsAPI stats;
     private final OreAPI oreTrade;
-    private final RefinementGui refinement;
+    private final EntitiesAPI entities;
+    private final MovementAPI movement;
     private final MapTraveler traveler;
-    private final Collection<? extends Portal> portals;
-    private final Collection<? extends Station> bases;
+    private final StarSystemHelper starSystemHelper;
 
     private OreTraderConfig config;
     private Portal ggExitPortal;
+    private GameMap targetMap;
 
     private Iterator<OreAPI.Ore> ores;
-    private long sellTime, sellBtnTime = Long.MAX_VALUE, sellUntil;
+    private long sellTime, sellTimeout = Long.MAX_VALUE, waitUntil;
     private boolean hasAttemptedToSell, hasClickedTradeBtn;
+    private Status status = Status.IDLE;
+
+    private enum Status {
+        IDLE("Module not enabled"),
+        SELLING("Selling ore"),
+        NAVIGATING_BASE("Navigating to Base Map"),
+        NAVIGATING_REFINERY("Navigating to Refinery");
+
+        private final String message;
+
+        Status(String message) {
+            this.message = message;
+        }
+    }
 
     public OreTraderTmpModule(BotAPI bot,
                               ExtensionsAPI extensions,
-                              Main main,
-                              Drive drive,
-                              HeroManager hero,
-                              StatsManager stats,
-                              PortalJumper jumper,
+                              HeroAPI hero,
+                              StatsAPI stats,
+                              EntitiesAPI entities,
                               OreAPI oreTrade,
-                              RefinementGui refinement,
-                              MapTraveler traveler,
-                              EntitiesAPI entities) {
+                              StarSystemAPI star,
+                              MovementAPI movement,
+                              MapTraveler traveler) {
         super(bot);
         if (!Arrays.equals(DefaultInstallable.class.getSigners(), getClass().getSigners())) throw new SecurityException();
         if (DefaultInstallable.cantInstall(extensions, this)) throw new SecurityException();
-        this.main = main;
-        this.drive = drive;
+        
         this.hero = hero;
         this.stats = stats;
-        this.jumper = jumper;
         this.oreTrade = oreTrade;
-        this.refinement = refinement;
+        this.entities = entities;
+        this.movement = movement;
         this.traveler = traveler;
-        this.portals = entities.getPortals();
-        this.bases = entities.getStations();
+        this.starSystemHelper = new StarSystemHelper(hero, star, entities);
     }
 
     @Override
     public String getStatus() {
-        Map map = getTargetMap();
-        String state, name = map.name;
-        if (hero.map.id != map.id)
-            state = I18n.get("module.map_travel.status.no_next", name);
-        else if (bases.stream().filter(b -> b instanceof BaseRefinery).anyMatch(b -> hero.distanceTo(b) > 300D))
-            state = "Travelling to station";
-        else state = "Selling";
-        return StatusUtils.status("Ore Trader", state, name + " Station");
+        String state = status.message;
+        if (status == Status.NAVIGATING_BASE) {
+            state += " | " + I18n.get("module.map_travel.status.no_next", targetMap.getName());
+        }
+        return StatusUtils.status("Ore Trader", state);
     }
 
     @Override
@@ -106,19 +91,12 @@ public class OreTraderTmpModule extends TemporalModule implements Behavior, Conf
 
     @Override
     public boolean canRefresh() {
-        return false;
+        return !hero.isMoving() && !hasAttemptedToSell;
     }
 
     @Override
     public void onTickBehavior() {
-        if (!config.ENABLE_FEATURE || config.ORES_TO_SELL.isEmpty()) return;
-        if (Captcha.exists(main.mapManager.entities.boxes)) return;
-
-        boolean hasTarget = !(this.hero.target == null || this.hero.target.removed);
-        if (hasTarget && this.config.FINISH_TARGET_BEFORE_SELLING) return;
-
-        if (stats.getCargo() >= stats.getMaxCargo() && checkGG() && this.main.module != this)
-            main.setModule(this);
+        if (shouldEnableModule()) enableModule();
     }
 
     @Override
@@ -127,29 +105,45 @@ public class OreTraderTmpModule extends TemporalModule implements Behavior, Conf
 
         sellTick();
 
-        if (!areSelectedResourcesSold() && !oreSellBtnsAreBugged()) return;
+        if (!finishedSellingOres() && !oreSellBtnsAreBugged()) return;
         if (oreTrade.canSellOres()) {
-            sellTime = 0;
-            sellBtnTime = Long.MAX_VALUE;
-            hasClickedTradeBtn = false;
             System.out.println("closing trade");
             oreTrade.showTrade(false, null);
-        }
-        else goBack();
+        } else goBack();
     }
 
     @Override
     public void goBack() {
+        sellTime = 0;
+        sellTimeout = Long.MAX_VALUE;
         ggExitPortal = null;
+        targetMap = null;
+        hasClickedTradeBtn = false;
         hasAttemptedToSell = false;
+        status = Status.IDLE;
 
         super.goBack();
+    }
+
+    private boolean shouldEnableModule() {
+        if (!config.ENABLE_FEATURE) return false;
+
+        boolean hasTarget = hero.getTarget() != null && hero.getTarget().isValid();
+        return !Captcha.exists(entities.getBoxes()) // no captcha is active
+                && !config.ORES_TO_SELL.isEmpty() // we have configured ores
+                && (!config.FINISH_TARGET_BEFORE_SELLING || !hasTarget) // not waiting for target to finish
+                && (stats.getCargo() >= stats.getMaxCargo() && stats.getMaxCargo() != 0) // cargo is full
+                && checkGG(); // we can safely exit a GG
+    }
+
+    private void enableModule() {
+        if (bot.getModule() != this) bot.setModule(this);
     }
 
     // bug that causes you to be unable to sell ores
     private boolean oreSellBtnsAreBugged() {
         return stats.getCargo() >= stats.getMaxCargo() && oreTrade.canSellOres() &&
-                sellBtnTime <= System.currentTimeMillis();
+                sellTimeout <= System.currentTimeMillis();
     }
 
     private boolean shouldGoBackEarly() {
@@ -161,50 +155,54 @@ public class OreTraderTmpModule extends TemporalModule implements Behavior, Conf
         return stats.getCargo() < stats.getMaxCargo() - 100;
     }
 
-    // to prevent bug where bot will get stuck in GG due to jumping into wrong portal (most likely due to some client/server de-sync)
+    /**
+     * Indicates that the {@link HeroAPI Hero} is not in the LoW gate and an exit {@link Portal}
+     * cannot be found.
+     */
     private boolean isStuckInGG() {
-        return hero.map.gg && !hero.map.name.equals("LoW") && ggExitPortal == null;
+        return hero.getMap().isGG() && !hero.getMap().getName().equals("LoW") && ggExitPortal == null;
     }
 
     private void sellTick() {
         this.hero.setMode(this.config.SELL_CONFIG);
 
-        if (this.hero.map.gg && this.ggExitPortal != null) {
-            exitGG();
-            return;
-        }
 
-        Map targetMap = getTargetMap();
-        if (this.hero.map.id != targetMap.id) {
-            this.traveler.setTarget(targetMap);
-            this.traveler.tick();
-        }
-        else {
-            this.bases.stream()
-                    .filter(b -> b instanceof Station.Refinery)
-                    .map(b -> (Station.Refinery) b)
-                    .findFirst()
-                    .ifPresent(this::travelToBaseAndSell);
-        }
+        if (targetMap == null) targetMap = starSystemHelper.getRefineryMap(config);
+        if (!navigateToTargetMap()) return;
+
+        Optional<Station.Refinery> refinery = starSystemHelper.findRefinery();
+        refinery.ifPresent(this::travelToBaseAndSell);
     }
 
-    private void travelToBaseAndSell(Station.Refinery b) {
-        if (!oreTrade.canSellOres() && // can't move while trade window is open or ores won't be sold (some weird DO bug)
-                ((drive.movingTo().distanceTo(b) > 200D) ||
-                (System.currentTimeMillis() - sellTime > 5 * Time.SECOND && sellTime != 0))) { // trade btn not appearing
+    /**
+     * Navigates to the target map. If already there, returns true. Otherwise, false.
+     */
+    private boolean navigateToTargetMap() {
+        if (targetMap.getId() == hero.getMap().getId()) return true;
+
+        if (traveler.target.getId() != targetMap.getId()) traveler.setTarget(targetMap);
+        status = Status.NAVIGATING_BASE;
+        traveler.tick();
+
+        return false;
+    }
+
+    private void travelToBaseAndSell(Station.Refinery refinery) {
+        if (movement.getDestination().distanceTo(refinery) > 200D
+                || (System.currentTimeMillis() - sellTime > 5 * Time.SECOND && sellTime != 0)) { // trade btn not appearing
+            status = Status.NAVIGATING_REFINERY;
             double angle = ThreadLocalRandom.current().nextDouble(2 * Math.PI);
             double distance = 100 + ThreadLocalRandom.current().nextDouble(100);
-            drive.move(Location.of(b.getLocationInfo(), angle, distance));
-            System.out.println("moving");
+            movement.moveTo(Location.of(refinery.getLocationInfo(), angle, distance));
             this.sellTime = 0;
         } else {
             if (this.sellTime == 0) this.sellTime = System.currentTimeMillis();
-            if (!hasClickedTradeBtn && !hero.locationInfo.isMoving() && oreTrade.showTrade(true, b)) {
-                System.out.println("opening trade");
-                hasClickedTradeBtn = true;
+            if (!hasClickedTradeBtn && !hero.isMoving() && oreTrade.showTrade(true, refinery)) {
+                status = Status.SELLING;
                 sellTime = Long.MAX_VALUE;
-                sellBtnTime = System.currentTimeMillis() + config.ADVANCED.SELL_DELAY * config.ORES_TO_SELL.size() + config.ADVANCED.SELL_WAIT;
-                sellUntil = System.currentTimeMillis() + config.ADVANCED.SELL_WAIT;
+                sellTimeout = System.currentTimeMillis() + config.ADVANCED.SELL_INTERVAL * config.ORES_TO_SELL.size() + 2L * config.ADVANCED.SELL_WAIT;
+                waitUntil = System.currentTimeMillis() + config.ADVANCED.SELL_WAIT;
+                hasClickedTradeBtn = true;
             }
 
             sellOres();
@@ -213,59 +211,47 @@ public class OreTraderTmpModule extends TemporalModule implements Behavior, Conf
 
     private void sellOres() {
         if (!oreTrade.canSellOres()) return;
-        if (sellUntil > System.currentTimeMillis()) return;
-        sellUntil = System.currentTimeMillis() + config.ADVANCED.SELL_DELAY;
+
+        if (waitUntil > System.currentTimeMillis()) return;
+        waitUntil = System.currentTimeMillis() + config.ADVANCED.SELL_INTERVAL;
 
         if (ores == null || !ores.hasNext()) ores = config.ORES_TO_SELL.iterator();
         if (!ores.hasNext()) return;
 
         OreAPI.Ore ore = ores.next();
         if (ore == null) return;
-        oreTrade.sellOre(ore);
-        System.out.println("selling: " + ore);
 
-        hasAttemptedToSell = true;
+        if (ore.isSellable() && !isOreSold(ore)) {
+            oreTrade.sellOre(ore);
+            hasAttemptedToSell = true;
+        }
     }
 
-    private boolean areSelectedResourcesSold() {
+    private boolean finishedSellingOres() {
         return config.ORES_TO_SELL.stream()
                 .filter(Objects::nonNull)
                 .allMatch(this::isOreSold);
     }
 
     private boolean isOreSold(OreAPI.Ore ore) {
-        RefinementGui.Ore o = refinement.get(ore);
-        System.out.printf("checking if %s(type), %s(ore), is sold", ore, o);
-
-        return o != null &&
-                (ore == OreAPI.Ore.PALLADIUM ? !hero.map.name.equals("5-2") || o.getAmount() < 15 : o.getAmount() <= 0);
-    }
-
-    private void exitGG() {
-        if (this.ggExitPortal.distanceTo(main.hero) > 150D) {
-            this.hero.drive.move(ggExitPortal);
-            return;
-        }
-
-        jumper.jump(ggExitPortal);
+        int amount = oreTrade.getAmount(ore);
+        return ore == OreAPI.Ore.PALLADIUM
+                ? !hero.getMap().getName().equals("5-2") || amount < 15
+                : amount <= 0;
     }
 
     private boolean checkGG() {
-        return !hero.map.gg || (getTargetMap().name.equals("LoW") && hero.map.name.equals("LoW")) || existsValidPortal();
+        return !hero.getMap().isGG() || hasGateExit() || (targetMap != null && targetMap.getName().equals("LoW") && hero.getMap().getName().equals("LoW"));
     }
 
-    private boolean existsValidPortal() {
-        ggExitPortal = portals.stream()
-                .filter(Objects::nonNull)
-                .filter(p -> p.getTargetMap().map(gm -> !gm.isGG()).orElse(p.getPortalType().getId() == 1))
-                .min(Comparator.comparingDouble(p -> p.distanceTo(main.hero)))
-                .orElse(null);
+    private boolean hasGateExit() {
+        ggExitPortal =
+                entities.getPortals().stream()
+                        .filter(Objects::nonNull)
+                        .filter(p -> p.getTargetMap().map(m -> !m.isGG()).orElse(p.getPortalType().getId() == 1))
+                        .min(Comparator.comparingDouble(p -> p.getLocationInfo().distanceTo(hero)))
+                        .orElse(null);
         return ggExitPortal != null;
-    }
-
-    private Map getTargetMap() {
-        String name = config.SELL_MAP.replace("X", String.valueOf(hero.playerInfo.factionId));
-        return StarManager.getInstance().byName(name);
     }
 
 }
